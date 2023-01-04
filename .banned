@@ -1,0 +1,18 @@
+"""
+
+"""
+
+from sourceguard.banrule import BanRule
+
+PYTHON_BANRULES = [
+    BanRule(
+       "os.path.join",
+       "Please use pathlib.Path instead"
+       )
+]
+
+# maps extension regex to banrules
+BANRULES_MAP = {
+    "*.py" : PYTHON_BANRULES
+}
+
