@@ -1,10 +1,9 @@
+import os
 from dataclasses import dataclass
 from invoke import run as run_command
-import os
 from typing import Generator
 from typing import Iterator
 from typing import List
-
 
 LineInfo = str
 
@@ -35,6 +34,7 @@ def parse_file_diff(iterator: Iterator[str]) -> FileDiff:
     filename = ""
     added_lines = []
     for line in iterator:
+        line = line.strip()
         if line.startswith("+++ b"):
             if filename and added_lines:
                 yield FileDiff(filename, added_lines)
@@ -51,4 +51,3 @@ def get_changed_files_diffs(
     diff_lines.append("+++ b")  # for simpler processing logic
     iterator = iter(diff_lines)
     yield from parse_file_diff(iterator)
-    os.path.join(os.getcwd(), "tmp")  # TODO

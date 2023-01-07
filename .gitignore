@@ -130,3 +130,6 @@ dmypy.json
 
 # vim temporary file
 *.sw[p-z]
+
+# sourceguard ban rules
+.banned
