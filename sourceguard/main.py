@@ -1,4 +1,5 @@
 import itertools
+import sys
 import textwrap
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
@@ -52,7 +53,7 @@ def create_template_toplevel_banned_file(ban_info_path: Path) -> None:
                 ''').strip())
 
 
-def main() -> None:
+def main() -> int:
     root_dir = get_project_root_dir()
     diff_output = get_diff_output(root_dir)
 
@@ -62,12 +63,13 @@ def main() -> None:
     banrules = SourceFileLoader("banned", str(ban_info_path)).load_module()
 
     if not (failed_diff_output := run(diff_output, banrules.BANRULES_MAP)):
-        return
+        return 1
 
     for filepath, failure_description in failed_diff_output:
         print("There's a banned code fragment in {filepath}: "
               "\n\t{failure_description}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
