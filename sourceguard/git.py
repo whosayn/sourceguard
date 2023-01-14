@@ -1,4 +1,5 @@
 import os
+import re
 from dataclasses import dataclass
 from invoke import run as run_command
 from typing import Generator
@@ -32,17 +33,31 @@ class FileDiff:
 
 def parse_file_diff(iterator: Iterator[str]) -> FileDiff:
     filename = ""
+    line_no = 1
     added_lines = []
     for line in iterator:
         line = line.strip()
+
+        if line.startswith("-"):
+            continue
+
+        if line.startswith("@@"):
+            # get start line from '@@ -58,7 +58,8 @@' token
+            match = re.match(r"@@ -\d+,\d+ \+(\d+),\d+ @@", line).group(1)
+            line_no = int(match)
+            continue
+
         if line.startswith("+++ b"):
             if filename and added_lines:
                 yield FileDiff(filename, added_lines)
 
             filename = os.sep.join(line.split(os.sep)[1:])
             added_lines = []
-        elif line.startswith("+"):
-            added_lines.append(line[1:])
+            continue
+
+        if line.startswith("+"):
+            added_lines.append(f"{line_no}: {line[1:]}")
+        line_no += 1
 
 
 def get_changed_files_diffs(

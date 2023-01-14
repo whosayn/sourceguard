@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Dict
 from typing import Generator
 from typing import Iterator
+from typing import Tuple
 
 from sourceguard.git import FileDiff
 from sourceguard.banrule import BanRule
@@ -22,9 +23,15 @@ class Validator:
         self.regex = re.compile(
             combined_patterns) if combined_patterns else None
 
-    def validate(self, file_diff: FileDiff) -> Generator[BanRule, None, None]:
+    def validate(
+            self,
+            file_diff: FileDiff) -> Generator[Tuple[BanRule, str], None, None]:
 
-        def file_not_in_excluded_path(banrule: BanRule) -> bool:
+        def file_not_in_excluded_path(match: re.Match) -> bool:
+            if match is None:
+                return False
+
+            banrule = self.pattern_lookup[match.group(0)]
             if not banrule.excluded_paths:
                 return True
 
@@ -35,12 +42,14 @@ class Validator:
         if not self.regex:
             return
 
-        matches = (self.regex.match(diff_line.strip())
+        matches = (self.regex.search(diff_line)
                    for diff_line in file_diff.diff_lines)
 
-        yield from filter(file_not_in_excluded_path,
-                          (self.pattern_lookup[match.group(0)]
-                           for match in matches if match is not None))
+        included_matches = filter(file_not_in_excluded_path, matches)
+
+        # yield the failed ban rule and the line number of the failed line
+        yield from ((self.pattern_lookup[match.group(0)],
+                     match.string.split(":")[0]) for match in included_matches)
 
 
 class ValidationEngine:
@@ -58,9 +67,9 @@ class ValidationEngine:
             return
 
         validator = self.validators[extension_pattern]
-        yield from ((file_diff.filepath, failed_rule.pattern,
+        yield from ((file_diff.filepath, line_no, failed_rule.pattern,
                      failed_rule.description)
-                    for failed_rule in validator.validate(file_diff))
+                    for failed_rule, line_no in validator.validate(file_diff))
 
 
 def get_change_validation_engine(banrules_map: BanRulesMap):
