@@ -58,7 +58,8 @@ class ValidationEngine:
             return
 
         validator = self.validators[extension_pattern]
-        yield from ((file_diff.filepath, failed_rule.description)
+        yield from ((file_diff.filepath, failed_rule.pattern,
+                     failed_rule.description)
                     for failed_rule in validator.validate(file_diff))
 
 

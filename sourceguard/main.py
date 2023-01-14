@@ -65,9 +65,10 @@ def main() -> int:
     if not (failed_diff_output := run(diff_output, banrules.BANRULES_MAP)):
         return 1
 
-    for filepath, failure_description in failed_diff_output:
-        print("There's a banned code fragment in {filepath}: "
-              "\n\t{failure_description}")
+    for filepath, banned_expression, failure_description in failed_diff_output:
+        print(
+            f"{filepath}: {banned_expression} has be banned in this source code."
+            f"\n\t{failure_description}")
     return 0
 
 

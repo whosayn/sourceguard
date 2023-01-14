@@ -36,7 +36,8 @@ class TestSourceguardRun(unittest.TestCase):
         banrule = BanRule("os.path.join", "Some description", [])
 
         output = main.run(diff, {"*.py": [banrule]})
-        self.assertEqual(output, [("path/to/file.py", "Some description")])
+        self.assertEqual(
+            output, [("path/to/file.py", "os.path.join", "Some description")])
 
     def test_run_with_excluded_path(self):
         diff = """
