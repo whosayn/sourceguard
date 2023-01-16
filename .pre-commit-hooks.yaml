@@ -1,0 +1,7 @@
+- id: sourceguard
+  name: sourceguard
+  entry: sourceguard
+  language: python
+  require_serial: true
+  types: [file]
+  description: "Sourceguard: Ban problematic code fragments from your source code."

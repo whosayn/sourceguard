@@ -63,14 +63,14 @@ def main() -> int:
     banrules = SourceFileLoader("banned", str(ban_info_path)).load_module()
 
     if not (failed_diff_output := run(diff_output, banrules.BANRULES_MAP)):
-        return 1
+        return 0
 
     for (filepath, line_no, banned_expression,
          failure_description) in failed_diff_output:
         print(f"{filepath}: {line_no}: {banned_expression} has been "
               f"banned in this source code."
               f"\n\t{failure_description}")
-    return 0
+    return 1
 
 
 if __name__ == "__main__":
