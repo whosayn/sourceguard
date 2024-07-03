@@ -1,0 +1,37 @@
+# out-of-the box hooks from pre-commit, see: https://github.com/pre-commit/pre-commit-hooks
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0  # Use the ref you want to point at
+    hooks:
+      - id: trailing-whitespace
+      - id: detect-private-key
+      - id: check-yaml
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+      - id: check-added-large-files
+        args: ['--maxkb=1800']
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: pretty-format-json
+        args:
+          - "--autofix"
+          - "--indent=2"
+          - "--no-sort-keys"
+
+  - repo: https://github.com/ambv/black
+    rev: 24.3.0
+    hooks:
+      - id: black
+        language_version: python3
+
+
+  # - repo: https://github.com/tcort/markdown-link-check
+  #   rev: v3.12.1
+  #   hooks:
+  #     - id: markdown-link-check
+  #       name: Markdown Link Check
+  #       description: Extracts links from markdown texts and checks they're all alive (i.e. return status 200 OK).
+  #       entry: markdown-link-check
+  #       language: node
+  #       types: [markdown]
+  #       stages: [commit, push, manual]
