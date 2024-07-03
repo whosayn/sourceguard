@@ -4,6 +4,7 @@ from typing import Dict
 from typing import Generator
 from typing import Iterator
 from typing import Tuple
+from typing import Tuple
 
 from sourceguard.git import FileDiff
 from sourceguard.banrule import BanRule
