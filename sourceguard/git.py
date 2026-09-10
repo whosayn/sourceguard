@@ -1,4 +1,5 @@
 """Read Git patches without changing the caller's working directory."""
+
 import ast
 import re
 import subprocess

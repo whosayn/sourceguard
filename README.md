@@ -1,54 +1,91 @@
 # Sourceguard
 
-**Stop introducing code patterns your team has outgrown.** Sourceguard checks
-newly added Git lines against your team's rules, so you can adopt a standard
-without first cleaning up the entire codebase.
+**Turn repeated code review comments into team rules.**
 
-Use it to prevent deprecated APIs, debug statements, or project-specific
-anti-patterns. Each rule explains what to use instead. It works on any text-based
-language, needs only Python 3.9+ and Git, and has no runtime dependencies.
+“Use our approved client.” “Don't commit focused tests.” “Stop adding calls to
+that deprecated API.” Write the rule once; Sourceguard checks newly added Git
+lines locally and in CI. Adopt standards without fixing all your legacy code.
 
-## Start in a minute
+- **Small policies:** literal strings or regexes, file globs, useful messages.
+- **Gradual rollout:** observe warnings first, enforce rules when they're ready.
+- **Useful feedback:** stable rule IDs, JSON output, and GitHub annotations.
+- **Local execution:** Python 3.9+, Git, no runtime dependencies or hosted service.
+
+## Try it
 
 Install from a checkout of this repository:
 
 ```sh
 python -m pip install .
-sourceguard --init
+sourceguard --init --preset javascript
+sourceguard --check-config
 ```
 
-This creates `.banned` at your repository root with an example rule:
+Use `--preset python` for Python debugger checks. `--list-presets` shows the
+available starters. These are editable examples, not comprehensive lint rules.
+They start as warnings so trying Sourceguard doesn't block your team.
 
-```python
-from sourceguard.banrule import BanRule
-
-BANRULES_MAP = {
-    "*.py": [
-        BanRule(
-            r"\bos\.path\.join\s*\(",
-            "Use pathlib.Path instead.",
-            excluded_paths=["vendor/*", "generated/*"],
-        ),
-    ],
-}
-```
-
-Edit the rules for your team, commit `.banned`, then check your staged changes:
+Commit the generated `sourceguard.json`, stage a change, then run:
 
 ```sh
 git add .
 sourceguard
 ```
 
-Example output:
+For a newly added `test.only(...)`, you'll see:
 
 ```text
-src/app.py:12: banned pattern '\\bos\\.path\\.join\\s*\\(': Use pathlib.Path instead.
+tests/cart.test.ts:12: warning [js-no-focused-tests] Remove .only so the full test suite runs.
 ```
 
 Run from any directory in the repository. Only the staged version is checked;
-unstaged edits and existing lines are ignored. A missing config produces an
-error with setup instructions; checking never creates files.
+unstaged edits and existing lines are ignored. Checking never creates files.
+
+## Your team's first rule
+
+Use `sourceguard --init` for a custom-rule starter, or edit `sourceguard.json`:
+
+```json
+{
+  "version": 1,
+  "exclude": ["vendor/*", "node_modules/*", "dist/*"],
+  "rules": [
+    {
+      "id": "use-approved-client",
+      "literal": "legacyClient(",
+      "message": "Use approvedClient() instead of the deprecated client.",
+      "files": ["*.ts", "*.tsx"],
+      "exclude": ["tests/legacy/*"],
+      "severity": "warning"
+    }
+  ]
+}
+```
+
+`literal` matches exactly, including punctuation. For flexible matching, replace
+it with `"pattern": "\\blegacyClient\\s*\\("`. Specify exactly one of these fields.
+Run `sourceguard --check-config` to catch typos and invalid regular expressions.
+
+The policy rejects unknown fields, duplicate IDs, and duplicate JSON keys, so
+misspelled exclusions or severity settings don't silently change enforcement.
+
+## Roll out without disrupting developers
+
+```sh
+sourceguard --base origin/main --fail-on never   # observe all findings
+sourceguard --base origin/main                  # block errors, report warnings
+sourceguard --base origin/main --fail-on warning # block both
+```
+
+Change individual rules from `"warning"` to `"error"` as they become trusted.
+Rules without a severity default to `error`. Even with `--fail-on never`, broken
+configuration or Git failures return exit code 2.
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | No blocking findings, or successful setup/validation |
+| 1 | Findings reached the selected blocking threshold |
+| 2 | Configuration, Git, or invocation error |
 
 ## Pre-commit
 
@@ -69,15 +106,13 @@ repos:
 
 Then run `pre-commit install`. This repository also exports a Python-language
 `sourceguard` hook for remote use: pin its `rev` to a commit containing these
-changes. The hook scans the Git index once, without accepting filenames.
+features. The hook scans the Git index once, without accepting filenames.
 `pre-commit run --all-files` still checks only staged additions.
 
-## CI and tooling
-
-To enforce rules on a branch's committed changes:
+## CI and GitHub annotations
 
 ```sh
-sourceguard --base origin/main
+sourceguard --base origin/main --format github
 sourceguard --base origin/main --format json
 ```
 
@@ -85,51 +120,68 @@ sourceguard --base origin/main --format json
 staged and unstaged edits. Fetch the target branch and enough history to find a
 merge base first. An invalid ref or insufficient history returns an error.
 
-JSON output is an array of findings with `path`, `line` (integer), `pattern`, and
-`description`; a clean run returns `[]`. Diagnostics go to stderr.
+In a GitHub Actions job with Sourceguard installed, `--format github` emits
+file/line annotations for findings. It needs no API token or comment bot.
+`--format json` emits an array with `path`, `line` (integer), `pattern`,
+`description`, `rule_id`, and `severity`; a clean run returns `[]`.
+Diagnostics go to stderr.
 
-| Exit code | Meaning |
-| --- | --- |
-| 0 | No violations, or successful initialization |
-| 1 | Banned patterns found |
-| 2 | Configuration, Git, or invocation error |
+## Configuration and matching reference
 
-Use `--config path/to/rules` for an alternate config, relative to the repository
-root. `python -m sourceguard` works too. See `sourceguard --help` for all options.
+`sourceguard.json` takes precedence over the legacy `.banned` Python config.
+Existing `.banned` policies still work, and `--init` never overwrites an existing
+policy. `--config path/to/rules.json` selects an alternate config relative to the
+repository root. Use a `.json` suffix for declarative policies; other config
+paths use the legacy Python loader. `python -m sourceguard` works too.
 
-## Rule semantics
-
-- Map repository-relative file globs to lists of `BanRule` objects. `*.py`
-  matches Python files at any depth. Every matching group is evaluated.
-- Code patterns are Python regular expressions, searched independently on each
-  added line. Escape literal dots (`r"os\.path\.join"`). Whitespace is preserved;
-  anchors such as `^` match the source line, not the displayed line number.
-- Each rule produces at most one finding per added line. Multiple rules can
-  report on the same line.
-- Exclusions use the same glob matching as file selectors. `vendor/*` matches
-  files below the root `vendor` directory, including nested files; `*` can cross
-  directory separators. A basename glob also matches at any depth.
+- `version` must be `1`; `rules` must be an array, which may be empty.
+- Each JSON rule needs a unique `id`, a `message`, nonempty `files`, and exactly
+  one of `literal` or `pattern`. `exclude` and `severity` are optional.
+- File selectors and exclusions are repository-relative globs. `*.py` matches
+  Python files at any depth. `vendor/*` includes nested files under the root
+  `vendor` directory: `*` can cross directory separators.
+- Every matching rule runs. A rule matching several file globs reports only once
+  per added line. Separate rules can report on the same line.
+- Patterns are Python regexes applied independently to each added line.
+  Whitespace is preserved and anchors match source text, not line numbers.
 - Deleted lines, unchanged context, pure renames, and Git binary patches are
   ignored. Modified lines count as newly added lines.
 
-`.banned` is executable Python loaded from the working tree, including in CI.
-Only load configs you trust. Regex matching is line-based and syntax-unaware:
-comments and strings can match, and multiline patterns are not supported.
+Legacy example:
+
+```python
+from sourceguard.banrule import BanRule
+
+BANRULES_MAP = {
+    "*.py": [
+        BanRule(
+            r"\bos\.path\.join\s*\(",
+            "Use pathlib.Path instead.",
+            excluded_paths=["vendor/*"],
+            id="use-pathlib",
+            severity="warning",
+        )
+    ]
+}
+```
+
+Legacy rules without IDs get a deterministic ID derived from their pattern.
+Their default severity remains `error`, and the Python `run()` API still returns
+its original four-element tuples.
+
+JSON policies are data; `.banned` is executable Python. Both are loaded from the
+working tree, including in CI. Only load Python configs you trust. Matching is
+line-based and syntax-unaware: comments and strings can match, multiline
+patterns are unsupported, and rules should be reviewed for false positives.
 Sourceguard is a lightweight team policy check, not a security scanner or a
 replacement for language-aware linting.
 
-## Adopting with a team
-
-Start with a few high-confidence rules and descriptions that show a concrete
-replacement. Exclude generated and third-party code. Run on pull requests before
-requiring it, and use reports to remove noisy rules. Existing violations remain
-until their lines are edited, making gradual migration practical.
-
-## Development
+## Development and direction
 
 ```sh
 python -m unittest discover -s tests -v
 ```
 
-Tests include real temporary Git repositories for staging, initial commits,
-branch comparisons, renames, unusual filenames, and CLI behavior.
+Tests cover actual temporary Git repositories, policy validation, gradual
+rollout, starter examples, and CI output. See [the adoption plan](docs/adoption.md)
+for the intended audience, feature priorities, and how we'll validate demand.

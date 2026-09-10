@@ -149,9 +149,9 @@ class GitIntegrationTest(unittest.TestCase):
         self.assertIn("--init", err)
         self.assertFalse((self.root / ".banned").exists())
         self.assertEqual(self.cli("--init")[0], 0)
-        content = (self.root / ".banned").read_text()
+        content = (self.root / "sourceguard.json").read_text()
         self.assertEqual(self.cli("--init")[0], 0)
-        self.assertEqual((self.root / ".banned").read_text(), content)
+        self.assertEqual((self.root / "sourceguard.json").read_text(), content)
         self.assertEqual(self.cli()[0], 0)
 
     def test_configuration_errors_and_bad_ref(self):
@@ -161,6 +161,15 @@ class GitIntegrationTest(unittest.TestCase):
         code, _, err = self.cli("--base", "does-not-exist")
         self.assertEqual(code, 2)
         self.assertIn("sourceguard:", err)
+
+    def test_portable_starter_against_real_staged_changes(self):
+        self.assertEqual(self.cli("--init", "--preset", "javascript")[0], 0)
+        (self.root / "app.test.ts").write_text("test.only('checkout', fn)\n")
+        self.git("add", ".")
+        code, output, err = self.cli("--format", "github")
+        self.assertEqual(code, 0, err)
+        self.assertIn("::warning file=app.test.ts,line=1", output)
+        self.assertEqual(self.cli("--fail-on", "warning")[0], 1)
 
     def test_module_entry_point_from_nested_directory(self):
         self.config()

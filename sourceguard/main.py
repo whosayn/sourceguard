@@ -1,11 +1,12 @@
 """Command-line entry point and public patch validation API."""
+
 import argparse
-import json
-import runpy
 import sys
 from pathlib import Path
 
 from sourceguard.engine import get_change_validation_engine
+from sourceguard.config import PRESETS, create_policy, load_config, resolve_config
+from sourceguard.reporting import render, has_blocking_findings
 from sourceguard.git import (
     get_project_root_dir,
     get_changed_files_diffs,
@@ -46,47 +47,67 @@ def main(argv=None) -> int:
         description="Reject banned code patterns in newly added Git lines."
     )
     parser.add_argument(
-        "--init", action="store_true", help="create an example .banned file"
+        "--init", action="store_true", help="create a portable JSON policy"
+    )
+    parser.add_argument(
+        "--preset",
+        choices=sorted(PRESETS),
+        help="starter rules to copy into a new policy (with --init)",
+    )
+    parser.add_argument(
+        "--list-presets", action="store_true", help="list built-in starter policies"
     )
     parser.add_argument("--config", help="config path (relative to repository root)")
     parser.add_argument(
         "--base", help="check committed changes since merge base with REF"
     )
-    parser.add_argument("--format", choices=("text", "json"), default="text")
+    parser.add_argument(
+        "--check-config",
+        action="store_true",
+        help="validate policy without scanning Git changes",
+    )
+    parser.add_argument(
+        "--fail-on",
+        choices=("error", "warning", "never"),
+        default="error",
+        help="blocking threshold (default: error)",
+    )
+    parser.add_argument("--format", choices=("text", "json", "github"), default="text")
     args = parser.parse_args(argv)
+    if args.preset and not args.init:
+        parser.error("--preset requires --init")
+    if args.list_presets:
+        for name, rules in PRESETS.items():
+            print(f"{name}: " + ", ".join(rule["id"] for rule in rules))
+        return 0
     try:
         root = Path(get_project_root_dir())
-        config = root / (args.config or ".banned")
+        config = resolve_config(root, args.config)
         if args.init:
-            created = create_template_toplevel_banned_file(config)
-            print(f"{'Created' if created else 'Already exists:'} {config}")
+            if config.exists():
+                print(f"Already exists: {config}")
+            elif config.suffix == ".json":
+                create_policy(config, args.preset)
+                print(f"Created {config}; starter rules warn until promoted to errors.")
+            else:
+                if args.preset:
+                    raise ValueError("--preset requires a .json config path")
+                create_template_toplevel_banned_file(config)
+                print(f"Created {config}")
             return 0
-        if not config.is_file():
-            raise ValueError(
-                f"Config not found: {config}. " "Run sourceguard --init to get started."
-            )
-        namespace = runpy.run_path(str(config))
-        if "BANRULES_MAP" not in namespace:
-            raise ValueError(f"{config} must define BANRULES_MAP")
-        findings = run(get_diff_output(str(root), args.base), namespace["BANRULES_MAP"])
-        if args.format == "json":
-            print(
-                json.dumps(
-                    [
-                        dict(
-                            path=path,
-                            line=int(line),
-                            pattern=pattern,
-                            description=description,
-                        )
-                        for path, line, pattern, description in findings
-                    ]
-                )
-            )
-        else:
-            for path, line, pattern, description in findings:
-                print(f"{path}:{line}: banned pattern {pattern!r}: " f"{description}")
-        return 1 if findings else 0
+        engine = load_config(config)
+        if args.check_config:
+            print(f"Valid policy: {config}")
+            return 0
+        findings = [
+            finding
+            for diff in get_changed_files_diffs(get_diff_output(str(root), args.base))
+            for finding in engine.findings(diff)
+        ]
+        output = render(findings, args.format)
+        if output:
+            print(output)
+        return int(has_blocking_findings(findings, args.fail_on))
     except Exception as exc:
         print(f"sourceguard: {exc}", file=sys.stderr)
         return 2

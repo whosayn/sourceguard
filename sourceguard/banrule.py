@@ -8,3 +8,5 @@ class BanRule:
     pattern: str
     description: Union[str, Sequence[str]]
     excluded_paths: Optional[Sequence[str]] = None
+    id: Optional[str] = None
+    severity: str = "error"
