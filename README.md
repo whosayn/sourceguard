@@ -1,5 +1,9 @@
 # Sourceguard
 
+[![Tests](https://github.com/whosayn/sourceguard/actions/workflows/tests.yml/badge.svg?branch=main&event=push)](https://github.com/whosayn/sourceguard/actions/workflows/tests.yml)
+[![Release](https://github.com/whosayn/sourceguard/actions/workflows/release.yml/badge.svg)](https://github.com/whosayn/sourceguard/actions/workflows/release.yml)
+[![PyPI version](https://img.shields.io/pypi/v/sourceguard.svg)](https://pypi.org/project/sourceguard/)
+
 **Turn repeated code review comments into team rules.**
 
 “Use our approved client.” “Don't commit focused tests.” “Stop adding calls to
@@ -176,12 +180,19 @@ patterns are unsupported, and rules should be reviewed for false positives.
 Sourceguard is a lightweight team policy check, not a security scanner or a
 replacement for language-aware linting.
 
-## Development and direction
+## Development
 
 ```sh
 python -m unittest discover -s tests -v
 ```
 
 Tests cover actual temporary Git repositories, policy validation, gradual
-rollout, starter examples, and CI output. See [the adoption plan](docs/adoption.md)
-for the intended audience, feature priorities, and how we'll validate demand.
+rollout, starter examples, and CI output.
+
+## Releases
+
+Publishing a GitHub release triggers tests, package builds, and automatic PyPI
+publishing. Maintainers can preview a release with `python scripts/release.py`
+and create it with `python scripts/release.py --publish` after merging the version
+change to `main`. See [the release guide](docs/releasing.md) for the one-time PyPI
+setup and release steps.
