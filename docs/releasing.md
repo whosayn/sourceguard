@@ -34,6 +34,22 @@ No `PYPI_TOKEN` secret is needed. The publishing job uses GitHub's short-lived
 OIDC identity, and PyPI generates package attestations automatically through the
 publishing action. See [PyPI's Trusted Publishing documentation](https://docs.pypi.org/trusted-publishers/using-a-publisher/).
 
+## Build distributions locally
+
+Install the build tools in your Python environment, then build without publishing:
+
+```sh
+python -m pip install build twine
+python scripts/release.py --build
+```
+
+This builds a source archive and a wheel from that archive using isolated build
+environments, validates both with `twine check --strict`, and saves them in
+`dist/`. It works on a feature branch with uncommitted changes for local testing.
+Each build uses a fresh staging directory, so old files in `dist/` cannot satisfy
+validation. Existing artifacts are preserved unless replaced by validated files
+with the same name.
+
 ## Each release
 
 1. Open a PR that updates `[metadata] version` in `setup.cfg` to a new, unused
@@ -56,10 +72,14 @@ publishing action. See [PyPI's Trusted Publishing documentation](https://docs.py
    python scripts/release.py --publish
    ```
 
-   The helper requires a clean working tree, verifies `HEAD` matches GitHub's
-   `main`, and rejects an existing release tag. It creates `v<version>` at that
+   The helper first builds and validates the wheel and source archive locally.
+   A build or metadata failure prevents release creation. It requires the build
+   tools above and a clean working tree. It verifies `HEAD` matches GitHub's
+   `main` and rejects an existing release tag. It creates `v<version>` at that
    exact commit with generated release notes. Prerelease versions are marked as
-   prereleases on GitHub. It doesn't push commits to `main`.
+   prereleases on GitHub. It doesn't push commits to `main`. The workflow builds
+   its own distributions from the tagged commit for PyPI and GitHub assets;
+   the local build is a preflight check, not an upload.
 4. Watch **Actions → Release** and approve the `pypi` environment if configured.
    A published GitHub release doesn't mean the PyPI upload has finished: wait
    for the workflow to complete, then verify the new version on PyPI.

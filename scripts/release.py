@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Preview or publish a GitHub release from the merged package version."""
+"""Preview, build, or publish a release from the package version."""
 import argparse
 import configparser
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "whosayn/sourceguard"
@@ -49,6 +51,34 @@ def release_command(version, sha):
     return args
 
 
+def build_distributions(version):
+    # Validate only fresh artifacts, even when dist/ contains previous releases.
+    with tempfile.TemporaryDirectory(prefix="sourceguard-release-") as directory:
+        staging = Path(directory)
+        command(sys.executable, "-m", "build", "--outdir", str(staging))
+        wheels = list(staging.glob(f"sourceguard-{version}-*.whl"))
+        sdist = staging / f"sourceguard-{version}.tar.gz"
+        if len(wheels) != 1 or not sdist.is_file():
+            raise ValueError(
+                "Build must produce one wheel and a source archive "
+                f"for sourceguard {version}"
+            )
+        artifacts = [wheels[0], sdist]
+        command(
+            sys.executable,
+            "-m",
+            "twine",
+            "check",
+            "--strict",
+            *(str(path) for path in artifacts),
+        )
+        destination = ROOT / "dist"
+        destination.mkdir(exist_ok=True)
+        for artifact in artifacts:
+            shutil.copy2(artifact, destination / artifact.name)
+        return [destination / artifact.name for artifact in artifacts]
+
+
 def validate_checkout(sha, tag):
     if command("git", "status", "--porcelain"):
         raise ValueError("Working tree must be clean before publishing a release")
@@ -68,9 +98,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
+        "--build",
+        action="store_true",
+        help="build and validate distributions in dist/ without publishing",
+    )
+    mode.add_argument(
         "--publish",
         action="store_true",
-        help="create the GitHub release and trigger PyPI publishing",
+        help="build and validate distributions, then create the GitHub release",
     )
     mode.add_argument("--check-tag", help="verify a release tag against setup.cfg")
     args = parser.parse_args(argv)
@@ -82,15 +117,23 @@ def main(argv=None):
                 raise ValueError(f"Release tag must be {tag}, got {args.check_tag!r}")
             print(f"Verified {tag}")
             return 0
+        if args.build:
+            for artifact in build_distributions(version):
+                print(f"Built and validated {artifact}")
+            return 0
         sha = command("git", "rev-parse", "HEAD")
         release = release_command(version, sha)
         if not args.publish:
             print("Preview only; no tag, release, or PyPI upload was created.")
+            print("Build and validate wheel + source archive before publishing.")
+            print("Run this script with --build to create local distributions.")
             print(shlex.join(release))
             print("After merging to main, run this script with --publish.")
             return 0
         validate_checkout(sha, tag)
         command("gh", "auth", "status")
+        for artifact in build_distributions(version):
+            print(f"Built and validated {artifact}")
         print(command(*release))
         print("GitHub release created. Follow the Release workflow for PyPI status.")
         return 0
