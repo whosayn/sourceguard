@@ -1,0 +1,2 @@
+include scripts/release.py
+include docs/releasing.md

@@ -1,80 +1,94 @@
+"""Apply every matching rule to newly added source lines."""
+
 import re
-from pathlib import Path
-from typing import Dict
-from typing import Generator
-from typing import Iterator
-from typing import Tuple
+import hashlib
+from fnmatch import fnmatchcase
+from pathlib import PurePosixPath
+from typing import Dict, Iterable
 
-from sourceguard.git import FileDiff
 from sourceguard.banrule import BanRule
+from sourceguard.reporting import Finding
 
-ExtensionPattern = str
-BanRulesMap = Dict[ExtensionPattern, Iterator[BanRule]]
+BanRulesMap = Dict[str, Iterable[BanRule]]
+
+
+def path_matches(filepath, pattern):
+    return fnmatchcase(filepath, pattern) or PurePosixPath(filepath).match(pattern)
 
 
 class Validator:
+    def __init__(self, banrules):
+        self.rules = []
+        for rule in banrules:
+            if not isinstance(rule, BanRule):
+                raise ValueError("Rules must be BanRule instances")
+            if rule.severity not in ("error", "warning"):
+                raise ValueError("Rule severity must be error or warning")
+            try:
+                regex = re.compile(rule.pattern)
+            except (re.error, TypeError) as exc:
+                raise ValueError(
+                    f"Invalid rule pattern {rule.pattern!r}: {exc}"
+                ) from exc
+            self.rules.append((rule, regex))
 
-    def __init__(self, banrules: Iterator[BanRule]):
-        self.pattern_lookup = {
-            banrule.pattern: banrule
-            for banrule in banrules
-        }
-        combined_patterns = "|".join(banrule.pattern for banrule in banrules)
-        self.regex = re.compile(
-            combined_patterns) if combined_patterns else None
-
-    def validate(
-            self,
-            file_diff: FileDiff) -> Generator[Tuple[BanRule, str], None, None]:
-
-        def file_not_in_excluded_path(match: re.Match) -> bool:
-            if match is None:
-                return False
-
-            banrule = self.pattern_lookup[match.group(0)]
-            if not banrule.excluded_paths:
-                return True
-
-            return any(
-                Path(excluded_path).match(file_diff.filepath)
-                for excluded_path in banrule.excluded_paths)
-
-        if not self.regex:
-            return
-
-        matches = (self.regex.search(diff_line)
-                   for diff_line in file_diff.diff_lines)
-
-        included_matches = filter(file_not_in_excluded_path, matches)
-
-        # yield the failed ban rule and the line number of the failed line
-        yield from ((self.pattern_lookup[match.group(0)],
-                     match.string.split(":")[0]) for match in included_matches)
+    def validate(self, file_diff):
+        rules = [
+            (rule, regex)
+            for rule, regex in self.rules
+            if not any(
+                path_matches(file_diff.filepath, pattern)
+                for pattern in rule.excluded_paths or ()
+            )
+        ]
+        for line in file_diff.diff_lines:
+            line_no, _, source = line.partition(": ")
+            for rule, regex in rules:
+                if regex.search(source):
+                    yield rule, line_no
 
 
 class ValidationEngine:
-
-    def __init__(self, validators: Dict[ExtensionPattern, Validator]):
+    def __init__(self, validators):
         self.validators = validators
 
-    def validate(self, file_diff: FileDiff) -> Generator[BanRule, None, None]:
-        filepath = Path(file_diff.filepath)
-        extension_pattern = next(
-            filter(filepath.match,
-                   (extension_pattern
-                    for extension_pattern in self.validators.keys())), "")
-        if not extension_pattern:
-            return
+    def findings(self, file_diff):
+        seen = set()
+        for pattern, validator in self.validators.items():
+            if path_matches(file_diff.filepath, pattern):
+                for rule, line_no in validator.validate(file_diff):
+                    # One logical rule can select several overlapping file globs.
+                    key = (id(rule), line_no)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    rule_id = (
+                        rule.id
+                        or "legacy-"
+                        + hashlib.sha256(rule.pattern.encode("utf-8")).hexdigest()[:12]
+                    )
+                    yield Finding(
+                        file_diff.filepath,
+                        int(line_no),
+                        rule.pattern,
+                        rule.description,
+                        rule_id,
+                        rule.severity,
+                    )
 
-        validator = self.validators[extension_pattern]
-        yield from ((file_diff.filepath, line_no, failed_rule.pattern,
-                     failed_rule.description)
-                    for failed_rule, line_no in validator.validate(file_diff))
+    def validate(self, file_diff):
+        for finding in self.findings(file_diff):
+            yield (
+                finding.path,
+                str(finding.line),
+                finding.pattern,
+                finding.description,
+            )
 
 
 def get_change_validation_engine(banrules_map: BanRulesMap):
-    validators = {
-        extension_pattern: Validator(rules)
-        for extension_pattern, rules in banrules_map.items()
-    }
-    return ValidationEngine(validators)
+    if not isinstance(banrules_map, dict):
+        raise ValueError("BANRULES_MAP must map file globs to lists of BanRule")
+    return ValidationEngine(
+        {pattern: Validator(rules) for pattern, rules in banrules_map.items()}
+    )

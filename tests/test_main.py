@@ -1,11 +1,11 @@
 import unittest
+import textwrap
 
 from sourceguard import main
 from sourceguard.banrule import BanRule
 
 
 class TestSourceguardRun(unittest.TestCase):
-
     def test_run_with_empty_diff(self):
         output = main.run("", {})
         self.assertEqual([], output)
@@ -21,7 +21,7 @@ class TestSourceguardRun(unittest.TestCase):
         """
         banrule = BanRule("os.path.join", "Some description", [])
 
-        output = main.run(diff, {"*.py": [banrule]})
+        output = main.run(textwrap.dedent(diff), {"*.py": [banrule]})
         self.assertEqual(output, [])
 
     def test_run_with_invalid_diff(self):
@@ -35,10 +35,10 @@ class TestSourceguardRun(unittest.TestCase):
         """
         banrule = BanRule("os.path.join", "Some description", [])
 
-        output = main.run(diff, {"*.py": [banrule]})
+        output = main.run(textwrap.dedent(diff), {"*.py": [banrule]})
         self.assertEqual(
-            output,
-            [("path/to/file.py", "3", "os.path.join", "Some description")])
+            output, [("path/to/file.py", "3", "os.path.join", "Some description")]
+        )
 
     def test_run_with_excluded_path(self):
         diff = """
@@ -51,9 +51,9 @@ class TestSourceguardRun(unittest.TestCase):
         """
         banrule = BanRule("os.path.join", "Some description", ["*thirdparty*"])
 
-        output = main.run(diff, {"*.py": [banrule]})
+        output = main.run(textwrap.dedent(diff), {"*.py": [banrule]})
         self.assertEqual(output, [])
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
