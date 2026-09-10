@@ -83,9 +83,94 @@ class ReleaseTest(unittest.TestCase):
 
         with patch.object(release, "read_version", return_value="1.2.3"):
             with patch.object(release, "command", side_effect=command):
-                with contextlib.redirect_stdout(io.StringIO()):
-                    self.assertEqual(release.main(["--publish"]), 0)
-        self.assertEqual(calls[-2], ("gh", "auth", "status"))
+                with patch.object(
+                    release,
+                    "build_distributions",
+                    side_effect=lambda version: calls.append(("build", version)) or [],
+                ):
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        self.assertEqual(release.main(["--publish"]), 0)
+        self.assertEqual(calls[-3], ("gh", "auth", "status"))
+        self.assertEqual(calls[-2], ("build", "1.2.3"))
         self.assertEqual(calls[-1], tuple(release.release_command("1.2.3", "abc123")))
         self.assertEqual(calls[1], ("git", "status", "--porcelain"))
         self.assertEqual(calls[2][:2], ("git", "ls-remote"))
+
+    def test_build_only_does_not_require_git_or_github(self):
+        with patch.object(release, "read_version", return_value="1.2.3"):
+            with patch.object(release, "command") as command:
+                with patch.object(
+                    release, "build_distributions", return_value=[]
+                ) as build:
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        self.assertEqual(release.main(["--build"]), 0)
+                build.assert_called_once_with("1.2.3")
+                command.assert_not_called()
+
+    def test_build_failure_prevents_release_creation(self):
+        with patch.object(release, "read_version", return_value="1.2.3"):
+            with patch.object(release, "validate_checkout"):
+                with patch.object(release, "command", return_value="abc123") as command:
+                    with patch.object(
+                        release,
+                        "build_distributions",
+                        side_effect=ValueError("Build failed"),
+                    ):
+                        with contextlib.redirect_stderr(io.StringIO()):
+                            self.assertEqual(release.main(["--publish"]), 1)
+                self.assertFalse(
+                    any(
+                        call.args[:3] == ("gh", "release", "create")
+                        for call in command.call_args_list
+                    )
+                )
+
+    def test_build_validates_fresh_artifacts_before_copying(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "dist").mkdir()
+            old = root / "dist" / "old.whl"
+            old.write_text("preserve")
+            commands = []
+
+            def command(*args):
+                commands.append(args)
+                if args[2] == "build":
+                    staging = Path(args[-1])
+                    (staging / "sourceguard-1.2.3-py3-none-any.whl").write_text("wheel")
+                    (staging / "sourceguard-1.2.3.tar.gz").write_text("sdist")
+                else:
+                    self.assertEqual(args[2:5], ("twine", "check", "--strict"))
+                    self.assertEqual(len(args[5:]), 2)
+                    for artifact in args[5:]:
+                        self.assertNotEqual(Path(artifact).parent, root / "dist")
+
+            with patch.object(release, "ROOT", root):
+                with patch.object(release, "command", side_effect=command):
+                    artifacts = release.build_distributions("1.2.3")
+            self.assertEqual([p.read_text() for p in artifacts], ["wheel", "sdist"])
+            self.assertEqual(old.read_text(), "preserve")
+
+    def test_missing_artifacts_or_failed_validation_preserve_existing_files(self):
+        for failure in ("missing", "validation"):
+            with self.subTest(
+                failure=failure
+            ), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "dist").mkdir()
+                wheel = root / "dist" / "sourceguard-1.2.3-py3-none-any.whl"
+                wheel.write_text("previous")
+
+                def command(*args):
+                    if args[2] == "build" and failure == "validation":
+                        staging = Path(args[-1])
+                        (staging / wheel.name).write_text("new")
+                        (staging / "sourceguard-1.2.3.tar.gz").write_text("new")
+                    elif args[2] == "twine":
+                        raise ValueError("Invalid metadata")
+
+                with patch.object(release, "ROOT", root):
+                    with patch.object(release, "command", side_effect=command):
+                        with self.assertRaises(ValueError):
+                            release.build_distributions("1.2.3")
+                self.assertEqual(wheel.read_text(), "previous")

@@ -192,7 +192,8 @@ rollout, starter examples, and CI output.
 ## Releases
 
 Publishing a GitHub release triggers tests, package builds, and automatic PyPI
-publishing. Maintainers can preview a release with `python scripts/release.py`
+publishing. Maintainers can preview a release with `python scripts/release.py`,
+build wheels locally with `python scripts/release.py --build`,
 and create it with `python scripts/release.py --publish` after merging the version
 change to `main`. See [the release guide](docs/releasing.md) for the one-time PyPI
 setup and release steps.
